@@ -41,20 +41,83 @@
   --blur-glass: blur(28px) saturate(160%);
 }
 
-html, body {
-  width: 100%; height: 100%;
+/* ─── Particles & Cursor ─────────────────── */
+canvas#bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#cursor-dot {
+  position: fixed;
+  width: 6px;
+  height: 6px;
+  background: var(--chrome-cyan);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9999;
+  transform: translate(-50%, -50%);
+  mix-blend-mode: screen;
+}
+
+#cursor-ring {
+  position: fixed;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(0, 212, 255, 0.5);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 9998;
+  transform: translate(-50%, -50%);
+  transition: width 0.2s, height 0.2s;
+  mix-blend-mode: screen;
+}
+
+body.hovered #cursor-ring {
+  width: 52px;
+  height: 52px;
+  border-color: var(--chrome-blue);
+}
+
+/* Scanlines Effect */
+body::after {
+  content: '';
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.03) 3px, rgba(0,0,0,0.03) 4px);
+  z-index: 9990;
+}
+
+html {
+  width: 100%;
+  height: auto;
+}
+
+body {
+  width: 100%;
+  height: auto;
+  min-height: 100vh;
   background: var(--black);
   color: var(--text-primary);
   font-family: 'Lexend', sans-serif;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  margin: 0;
+  padding: 0;
 }
 
 #sip-root {
-  width: 100vw; height: 100vh;
-  overflow: hidden;
+  width: 100%;
+  height: auto;
+  overflow: visible;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Background ambient ──────────────────────────────────── */
@@ -107,20 +170,23 @@ html, body {
   position: relative;
   z-index: 1;
   width: 100%;
-  height: 100vh;
+  height: auto;
   display: flex;
   flex-direction: column;
 }
 
 /* ── Top bar ─────────────────────────────────────────────── */
 .sip-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 99;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 32px;
   height: 56px;
   border-bottom: 1px solid var(--border-dim);
-  background: rgba(0,0,0,0.7);
+  background: rgba(0,0,0,0.95);
   backdrop-filter: var(--blur-glass);
   flex-shrink: 0;
 }
@@ -189,35 +255,37 @@ html, body {
   50%       { opacity: 0.4; }
 }
 
-/* ── Navigation ──────────────────────────────────────────── */
+/* ── Navigation (Fixed) ──────────────────────────────────── */
 .sip-nav {
+  position: fixed;
+  top: 56px;
+  right: 32px;
+  z-index: 100;
   display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 24px;
-  height: 44px;
-  border-bottom: 1px solid var(--border-dim);
-  background: rgba(0,0,0,0.5);
-  flex-shrink: 0;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .sip-nav__item {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 7px;
-  padding: 6px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
   border: 1px solid transparent;
   user-select: none;
   position: relative;
   overflow: hidden;
+  min-width: 80px;
+  text-align: center;
 }
 
 .sip-nav__item::before {
@@ -245,13 +313,13 @@ html, body {
 .sip-nav__item.active::after {
   content: '';
   position: absolute;
-  bottom: 0;
-  left: 16px;
-  right: 16px;
-  height: 2px;
+  left: 0;
+  top: 16px;
+  bottom: 16px;
+  width: 3px;
   background: var(--chrome-blue);
-  border-radius: 2px 2px 0 0;
-  box-shadow: 0 0 10px rgba(91,156,246,0.6);
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 15px rgba(91,156,246,0.8);
 }
 
 .sip-nav__item.locked {
@@ -275,26 +343,46 @@ html, body {
 
 /* ── Main content area ───────────────────────────────────── */
 .sip-content {
-  flex: 1;
-  overflow: hidden;
   position: relative;
+  z-index: 1;
+  width: 100%;
+  height: auto;
+  min-height: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
-/* ── Lens reveal mask ────────────────────────────────────── */
+/* ── Scrollable sections ─────────────────────────────────── */
+.sip-section {
+  min-height: 100vh;
+  max-width: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 80px 32px 80px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* ── Section views ──────────────────────────────────────── */
 .sip-view {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 28px 32px;
-  opacity: 0;
-  clip-path: circle(0% at 50% 50%);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 80px 32px 80px;
+  position: relative;
+  opacity: 1;
+  width: 100%;
+  height: auto;
 }
 
-.sip-view.active {
-  opacity: 1;
-  clip-path: circle(150% at 50% 50%);
-  transition: clip-path 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+/* Ensure content is above Three.js */
+.sip-app {
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Welcome / Command screen ────────────────────────────── */
@@ -698,8 +786,18 @@ html, body {
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sip-topbar { padding: 0 16px; }
-  .sip-nav    { padding: 0 12px; }
-  .sip-content .sip-view { padding: 16px; }
+  .sip-nav { 
+    right: 16px;
+    gap: 4px;
+  }
+  .sip-nav__item {
+    padding: 8px 12px;
+    min-width: 60px;
+    font-size: 9px;
+  }
+  .sip-section { 
+    padding: 100px 16px 60px;
+  }
   .sip-stats-row { flex-wrap: wrap; }
   .sip-welcome__metrics { flex-wrap: wrap; justify-content: center; }
 }
