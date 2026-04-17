@@ -18,9 +18,11 @@ const NAV_ITEMS = [
 
 function App() {
   const [activeView, setActiveView] = useState('welcome');
+  const [isImmersive, setIsImmersive] = useState(false);
   const [screenSize, setScreenSize] = useState({ w: window.innerWidth, h: window.innerHeight });
   const sections = ['welcome', 'data', 'explore', 'hypo', 'report'];
   const networkRef = useRef(null);
+  const mouse = useRef(new THREE.Vector2());
 
   // --- Actualizar tamaño dinámicamente ---
   useEffect(() => {
@@ -41,112 +43,160 @@ function App() {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, screenSize.w / screenSize.h, 0.1, 100);
-    camera.position.z = 15;
+    camera.position.set(0, 0, 0); // Cámara en el centro del cilindro
 
-    const group = new THREE.Group();
-    scene.add(group);
-    networkRef.current = group;
+    const raycaster = new THREE.Raycaster();
 
-    // Plexus Grid
-    const count = 400;
-    const geometry = new THREE.BufferGeometry();
-    const pos = new Float32Array(count * 3);
-    for(let i=0; i<count*3; i++) pos[i] = (Math.random() - 0.5) * 40;
-    geometry.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    
-    const points = new THREE.Points(geometry, new THREE.PointsMaterial({ 
-      size: 0.1, color: 0x00d4ff, transparent: true, opacity: 0.8 
-    }));
-    group.add(points);
+    // --- Cilindro de Paneles (Estilo Active Theory) ---
+    const cylinderGroup = new THREE.Group();
+    scene.add(cylinderGroup);
+    networkRef.current = cylinderGroup;
 
-    // Conexiones
-    const lineMat = new THREE.LineBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.1 });
-    const lineGeo = new THREE.BufferGeometry();
-    const linePos = [];
-    for(let i=0; i<100; i++) {
-        const i3 = Math.floor(Math.random() * count) * 3;
-        const j3 = Math.floor(Math.random() * count) * 3;
-        linePos.push(pos[i3], pos[i3+1], pos[i3+2], pos[j3], pos[j3+1], pos[j3+2]);
-    }
-    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
-    group.add(new THREE.LineSegments(lineGeo, lineMat));
+    const panelCount = sections.length;
+    const radius = 15;
+    const panels = [];
+
+    sections.forEach((id, i) => {
+      const angle = (i / panelCount) * Math.PI * 2;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+
+      const geometry = new THREE.PlaneGeometry(8, 10);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x00d4ff,
+        transparent: true,
+        opacity: 0.1,
+        side: THREE.DoubleSide
+      });
+
+      const panel = new THREE.Mesh(geometry, material);
+      panel.position.set(x, 0, z);
+      panel.lookAt(0, 0, 0);
+      panel.userData = { id, index: i };
+      
+      const edges = new THREE.EdgesGeometry(geometry);
+      const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.3 }));
+      panel.add(line);
+
+      cylinderGroup.add(panel);
+      panels.push(panel);
+    });
+
+    const onMouseClick = () => {
+      raycaster.setFromCamera(mouse.current, camera);
+      const intersects = raycaster.intersectObjects(panels);
+      if (intersects.length > 0) {
+        const target = intersects[0].object;
+        window.__targetID = target.userData.id;
+        window.__isFlying = true;
+      }
+    };
+    window.addEventListener('click', onMouseClick);
 
     const animate = () => {
       requestAnimationFrame(animate);
-      group.rotation.y += 0.0005;
+      
+      if (window.__isFlying) {
+        camera.position.lerp(new THREE.Vector3(0, 0, 5), 0.05); // Debería volar HACIA el panel, simplificado por ahora
+        if (camera.position.length() > 5) {
+          window.__isFlying = false;
+          // Disparar cambio de estado en React vía evento custom o window
+          window.dispatchEvent(new CustomEvent('enter-section', { detail: window.__targetID }));
+        }
+      }
+
       renderer.render(scene, camera);
     };
     animate();
 
-    return () => renderer.dispose();
+    return () => {
+      window.removeEventListener('click', onMouseClick);
+      renderer.dispose();
+    };
   }, [screenSize]);
 
-  // --- Scroll & Snap Logic ---
+  // --- Scroll Logic ---
   useEffect(() => {
     const handleScroll = () => {
       const scrollY = window.scrollY || document.documentElement.scrollTop;
-      const vh = screenSize.h;
-      const scrollPercent = scrollY / (vh * (sections.length - 1));
-
-      // Reacción de la Red 3D
-      if (networkRef.current) {
-        networkRef.current.position.z = scrollPercent * 10;
-        networkRef.current.rotation.x = scrollPercent * Math.PI * 0.5;
+      const scrollPercent = scrollY / (screenSize.h * (sections.length - 1));
+      if (networkRef.current && !isImmersive) {
+        networkRef.current.rotation.y = scrollPercent * Math.PI * 2;
       }
+    };
 
-      sections.forEach((id, index) => {
-        const el = document.getElementById(`section-${id}`);
-        if (!el) return;
-        const start = index * vh;
-        const progress = (scrollY - start) / vh;
-        
-        // Efectos de transición suaves
-        if (Math.abs(progress) < 1) {
-          const opacity = 1 - Math.abs(progress);
-          el.style.opacity = opacity;
-          el.style.transform = `scale(${1 - Math.abs(progress) * 0.1}) translateY(${progress * 20}px)`;
-          if (opacity > 0.6) setActiveView(id);
-        } else {
-          el.style.opacity = 0;
-        }
-      });
+    const handleEnter = (e) => {
+      setActiveView(e.detail);
+      setIsImmersive(true);
     };
 
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, [screenSize]);
+    window.addEventListener('enter-section', handleEnter);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('enter-section', handleEnter);
+    };
+  }, [screenSize, isImmersive]);
 
-  const scrollTo = (index) => {
-    window.scrollTo({ top: index * screenSize.h, behavior: 'smooth' });
+  // --- Sync mouse coordinates ---
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      mouse.current.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      
+      const dot = document.getElementById('cursor-dot');
+      const ring = document.getElementById('cursor-ring');
+      if(dot) { dot.style.left = e.clientX + 'px'; dot.style.top = e.clientY + 'px'; }
+      if(ring) { ring.style.left = e.clientX + 'px'; ring.style.top = e.clientY + 'px'; }
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  const exitSection = () => {
+    setIsImmersive(false);
+    // Reiniciar cámara (simplificado, se puede mejorar con animación)
+    window.dispatchEvent(new CustomEvent('exit-immersive'));
   };
 
   return (
-    <div className="sip-app" style={{ height: `${sections.length * 100}vh`, background: 'transparent' }}>
+    <div className="sip-app" style={{ height: isImmersive ? '100vh' : `${sections.length * 100}vh`, background: 'transparent', overflow: isImmersive ? 'hidden' : 'auto' }}>
       
       {/* UI FIJA */}
       <div style={{ position: 'fixed', top: 30, left: 40, zIndex: 1000, pointerEvents: 'none' }}>
         <div style={{ color: '#00d4ff', fontSize: 10, letterSpacing: 5, fontWeight: 800 }}>SIP // IMMERSIVE OS</div>
       </div>
 
-      <nav style={{ position: 'fixed', right: 40, top: '50%', transform: 'translateY(-50%)', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 15 }}>
-        {sections.map((id, i) => (
-          <div key={id} onClick={() => scrollTo(i)} style={{ 
-            width: 8, height: 8, borderRadius: '50%', cursor: 'pointer',
-            background: activeView === id ? '#00d4ff' : 'rgba(255,255,255,0.2)',
-            boxShadow: activeView === id ? '0 0 15px #00d4ff' : 'none',
-            transition: 'all 0.4s cubic-bezier(0.23, 1, 0.32, 1)'
-          }} />
-        ))}
-      </nav>
+      {!isImmersive && (
+        <nav style={{ position: 'fixed', right: 40, top: '50%', transform: 'translateY(-50%)', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 15 }}>
+          {sections.map((id, i) => (
+            <div key={id} onClick={() => scrollTo(i)} style={{ 
+              width: 8, height: 8, borderRadius: '50%', cursor: 'pointer',
+              background: activeView === id ? '#00d4ff' : 'rgba(255,255,255,0.2)',
+              boxShadow: activeView === id ? '0 0 15px #00d4ff' : 'none',
+              transition: 'all 0.4s cubic-bezier(0.23, 1, 0.32, 1)'
+            }} />
+          ))}
+        </nav>
+      )}
+
+      {isImmersive && (
+        <button onClick={exitSection} style={{
+          position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', zIndex: 2000,
+          background: 'transparent', border: '1px solid #00d4ff', color: '#00d4ff', padding: '10px 20px',
+          borderRadius: 100, cursor: 'pointer', letterSpacing: 2, fontSize: 10, fontWeight: 800
+        }}>
+          EXIT TO CORE
+        </button>
+      )}
 
       {/* SECCIONES DINÁMICAS */}
-      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 10 }}>
-        {sections.map((id, i) => (
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: isImmersive ? 'all' : 'none', zIndex: 10, display: isImmersive ? 'block' : 'none' }}>
+        {sections.map((id) => (
           <div key={id} id={`section-${id}`} style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            opacity: i === 0 ? 1 : 0, transition: 'opacity 0.1s linear'
+            position: 'absolute', inset: 0, display: activeView === id ? 'flex' : 'none', alignItems: 'center', justifyContent: 'center'
           }}>
-            <div className="section-inner" style={{ textAlign: 'center', pointerEvents: 'all', width: '90%', maxWidth: 1000 }}>
+            <div className="section-inner" style={{ textAlign: 'center', width: '90%', maxWidth: 1000 }}>
               
               {id === 'welcome' && (
                 <>
