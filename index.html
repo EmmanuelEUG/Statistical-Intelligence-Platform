@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SIP — Plataforma de Inteligencia Estadística</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    :root {
+      --bg: #000003; --cyan: #00cfff; --magenta: #ff00cc; --gold: #ffd600; --mint: #00ffb2; --red: #ff3c00;
+      --border: rgba(0, 207, 255, 0.2); --text: #ffffff; --sub: rgba(255, 255, 255, 0.5);
+      --mono: 'Space Mono', monospace; --display: 'Syne', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100vw; height: 100vh; background: var(--bg); font-family: var(--mono); color: var(--text); cursor: none; overflow: hidden; }
+    canvas#bg { position: fixed; inset: 0; z-index: 1; pointer-events: auto; }
+    #noise, #scanlines { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+    #noise { background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.05'/%3E%3C/svg%3E"); mix-blend-mode: overlay; }
+    #scanlines { background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,207,255,0.01) 2px, rgba(0,207,255,0.01) 4px); }
+    #cursor-dot { position: fixed; width: 6px; height: 6px; background: #fff; border-radius: 50%; pointer-events: none; z-index: 99999; transform: translate(-50%,-50%); mix-blend-mode: difference; top: 0; left: 0; }
+    #cursor-ring { position: fixed; width: 34px; height: 34px; border: 1.5px solid var(--cyan); border-radius: 4px; pointer-events: none; z-index: 99998; transform: translate(-50%,-50%); transition: left 0.1s ease-out, top 0.1s ease-out; top: 0; left: 0; }
+    #app { position: relative; z-index: 5; width: 100vw; height: 100vh; pointer-events: none; }
+    #section-overlay { position: fixed; inset: 0; z-index: 1000; display: none; background: rgba(0,0,3,0.98); flex-direction: column; pointer-events: auto; backdrop-filter: blur(30px); }
+    #section-overlay.active { display: flex; }
+    #sec-header { display: flex; align-items: center; justify-content: space-between; padding: 30px 60px; border-bottom: 1px solid var(--border); }
+    #sec-header h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 24px; color: var(--cyan); text-transform: uppercase; }
+    #sec-main { flex: 1; overflow-y: auto; padding: 50px 80px; }
+    .back-btn { color: var(--cyan); cursor: pointer; padding: 12px 30px; border: 1px solid var(--cyan); border-radius: 4px; font-size: 12px; font-weight: 800; background: rgba(0,207,255,0.05); transition: 0.3s; text-transform: uppercase; letter-spacing: 0.1em; }
+    .back-btn:hover { background: var(--cyan); color: #000; box-shadow: 0 0 25px var(--cyan); }
+    .ai-btn { color: var(--gold); border: 1px solid var(--gold); background: rgba(255,214,0,0.05); margin-left: 15px; display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .ai-btn:hover { background: var(--gold); color: #000; box-shadow: 0 0 25px var(--gold); }
+    .card { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 30px; margin-bottom: 30px; }
+    .card-title { font-size: 13px; color: var(--cyan); text-transform: uppercase; letter-spacing: 0.2em; margin-bottom: 20px; border-bottom: 1px solid rgba(0,207,255,0.1); padding-bottom: 12px; font-weight: 700; }
+    .sip-select, .sip-input { width: 100%; background: #000; border: 1px solid var(--border); border-radius: 4px; padding: 14px; color: #fff; font-family: var(--mono); outline: none; transition: 0.3s; font-size: 14px; }
+    .sip-table { width: 100%; border-collapse: collapse; }
+    .sip-table th { text-align: left; font-size: 11px; color: var(--sub); padding: 15px; border-bottom: 1px solid var(--border); }
+    .sip-table td { padding: 15px; font-size: 13px; border-bottom: 1px solid rgba(0,207,255,0.05); }
+    .label-hint { font-size: 10px; color: var(--sub); margin-bottom: 8px; display: block; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 3px solid rgba(0,255,178,0.3); border-radius: 50%; border-top-color: var(--mint); animation: spin 1s ease-in-out infinite; margin-right: 15px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: var(--cyan); border-radius: 10px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+  <div id="noise"></div><div id="scanlines"></div><div id="cursor-dot"></div><div id="cursor-ring"></div>
+  <div id="hud-top"><div class="logo" style="pointer-events:none; padding:40px 60px; font-size:28px;">SIP<span>.</span></div></div>
+  <div id="app"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+    const SECTIONS_REF = [
+      { id: "upload", title: "Carga de Datos", color: "#00cfff", icon: "↑" },
+      { id: "dataset", title: "Resumen de Activos", color: "#ff00cc", icon: "▦" },
+      { id: "distribution", title: "Gráfica de Tendencias", color: "#ffd600", icon: "∿" },
+      { id: "z_value", title: "Simulador de Riesgos", color: "#00ffb2", icon: "∑" },
+      { id: "hypothesis", title: "Motor de Decisión", color: "#ff3c00", icon: "Δ" },
+    ];
+
+    const ST = {
+      normPDF(x) { return (1 / Math.sqrt(2 * Math.PI)) * Math.exp(-0.5 * x * x); },
+      normCDF(x) {
+        const t = 1 / (1 + 0.2316419 * Math.abs(x));
+        const d = 0.3989423 * Math.exp(-x * x / 2);
+        const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.7814779 + t * (-1.8212560 + t * 1.3302744))));
+        return x > 0 ? 1 - p : p;
+      },
+      normPPF(p) {
+        if (p < 0.5) return -this.normPPF(1 - p);
+        if (p >= 0.999) return 3.09;
+        const t = Math.sqrt(-2 * Math.log(1 - p));
+        return t - (2.515517 + 0.802853 * t + 0.010328 * t * t) / (1 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t);
+      },
+      getStats(col, data) {
+        if (!col || !data || data.length === 0) return { mean: 0, std: 1, n: 0, median: 0, skew: 0, vals: [] };
+        const vals = data.map(d => parseFloat(d[col])).filter(n => !isNaN(n)).sort((a,b)=>a-b);
+        if (vals.length === 0) return { mean: 0, std: 1, n: 0, median: 0, skew: 0, vals: [] };
+        const n = vals.length, mean = vals.reduce((a, b) => a + b, 0) / n;
+        const std = Math.sqrt(vals.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, n - 1)) || 1;
+        const median = vals[Math.floor(n/2)];
+        const skew = std !== 0 ? (3 * (mean - median)) / std : 0; 
+        return { mean, std, n, median, skew, vals };
+      }
+    };
+
+    function DistributionFlow({ data, columns }) {
+      const numCols = useMemo(() => columns.filter(c => data[0] && !isNaN(parseFloat(data[0][c]))), [columns, data]);
+      const [col, setCol] = useState(numCols[0] || ""); 
+      const chartRef = useRef(null); 
+      const boxRef = useRef(null);
+      const stats = useMemo(() => ST.getStats(col, data), [col, data]);
+
+      useEffect(() => { 
+        if (!col || !data || !data.length || !chartRef.current) return; 
+        const vals = stats.vals;
+        const min = stats.mean - stats.std * 4, max = stats.mean + stats.std * 4; 
+        const xV = [], yV = [], steps = 100; 
+        for (let i = 0; i <= steps; i++) { 
+          const x = min + (i * (max - min) / steps), y = (1 / (stats.std * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - stats.mean) / stats.std, 2)); 
+          xV.push(x); yV.push(y); 
+        } 
+        Plotly.newPlot(chartRef.current, [
+          { x: vals, name: "Histograma", type: "histogram", histnorm: "probability density", marker: { color: "rgba(0, 207, 255, 0.3)" } }, 
+          { x: xV, y: yV, type: "scatter", mode: "lines", name: "Campana", line: { color: "#ff00cc", width: 2 } }
+        ], { 
+          paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { t: 10, r: 10, b: 30, l: 30 }, 
+          font: { family: "Space Mono", color: "#fff", size: 10 }, xaxis: { gridcolor: "rgba(255,255,255,0.05)" }, 
+          yaxis: { visible: false }, showlegend: false, height: 250
+        }, { responsive: true, displayModeBar: false }); 
+
+        Plotly.newPlot(boxRef.current, [{ x: vals, type: "box", name: "Caja", marker: { color: "var(--mint)" } }], 
+        { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { t: 5, r: 10, b: 30, l: 30 }, height: 120, xaxis: { gridcolor: "rgba(255,255,255,0.05)" }, yaxis: { visible: false } }, 
+        { responsive: true, displayModeBar: false });
+      }, [col, data, stats]);
+
+      const isNormal = Math.abs(stats.skew) < 0.5;
+      const outliers = stats.vals.filter(v => v < stats.mean - 2.5 * stats.std || v > stats.mean + 2.5 * stats.std).length;
+
+      return (
+        <div className="grid-2">
+          <div className="card">
+            <div className="card-title">TUS GRÁFICAS</div>
+            <label className="label-hint">Columna a visualizar</label>
+            <select className="sip-select" value={col} onChange={e=>setCol(e.target.value)}>{numCols.map(c=><option key={c} value={c}>{c}</option>)}</select>
+            <div ref={chartRef}></div>
+            <div ref={boxRef}></div>
+          </div>
+          <div className="card" style={{borderLeft: "4px solid var(--cyan)"}}>
+            <div className="card-title">ANÁLISIS AMIGABLE</div>
+            <div style={{display:"grid", gap:"15px", fontSize:"13px"}}>
+              <p><b>¿Los datos son normales?</b><br/>{isNormal ? "✅ Sí, siguen una forma equilibrada." : "❌ No, los datos están algo dispersos o inclinados."}</p>
+              <p><b>¿Tienen inclinación?</b><br/>{stats.skew > 0.5 ? "➡️ Sí, hacia la derecha." : stats.skew < -0.5 ? "⬅️ Sí, hacia la izquierda." : "⚖️ No, están bien centrados."}</p>
+              <p><b>¿Hay valores raros?</b><br/>{outliers > 0 ? `⚠️ Sí, detectamos ${outliers} datos muy alejados.` : "✨ No, todos están cerca del promedio."}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ScoreProcessor({ data, columns }) {
+      const numCols = useMemo(() => columns.filter(c => data[0] && !isNaN(parseFloat(data[0][c]))), [columns, data]);
+      const [col, setCol] = useState(numCols[0] || ""); 
+      const [valX, setValX] = useState(0); 
+      const [tail, setTail] = useState("left"); 
+      const chartRef = useRef(null); 
+      const stats = useMemo(() => ST.getStats(col, data), [col, data]); 
+      const z = stats.std !== 0 ? (valX - stats.mean) / stats.std : 0;
+      useEffect(() => { 
+        if (!chartRef.current) return; 
+        const xV = [], yV = [], xS = [], yS = [], steps = 150; 
+        for (let i = 0; i <= steps; i++) { 
+          const cx = -4 + (i * 8 / steps), cy = ST.normPDF(cx); xV.push(cx); yV.push(cy); 
+          let fill = (tail === "left" && cx <= z) || (tail === "right" && cx >= z) || (tail === "both" && Math.abs(cx) >= Math.abs(z));
+          if (fill) { xS.push(cx); yS.push(cy); } 
+        } 
+        const traces = [
+          { x: xV, y: yV, type: "scatter", mode: "lines", line: { color: "rgba(255, 255, 255, 0.2)", width: 1 } },
+          { x: [z, z], y: [0, 0.4], type: "scatter", mode: "lines", line: { color: "var(--gold)", width: 3, dash: "dash" } }
+        ];
+        if (tail === "both") {
+          const az = Math.abs(z), xL = [], yL = [], xR = [], yR = [];
+          for(let i=0; i<xV.length; i++) { if (xV[i] <= -az) { xL.push(xV[i]); yL.push(yV[i]); } if (xV[i] >= az) { xR.push(xV[i]); yR.push(yV[i]); } }
+          traces.push({ x: xL, y: yL, fill: "tozeroy", type: "scatter", mode: "none", fillcolor: "rgba(0, 207, 255, 0.4)" }, { x: xR, y: yR, fill: "tozeroy", type: "scatter", mode: "none", fillcolor: "rgba(0, 207, 255, 0.4)" });
+        } else { traces.push({ x: xS, y: yS, fill: "tozeroy", type: "scatter", mode: "none", fillcolor: "rgba(0, 207, 255, 0.4)" }); }
+        Plotly.newPlot(chartRef.current, traces, { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { t: 5, r: 5, b: 20, l: 20 }, xaxis: { range: [-4, 4], gridcolor: "rgba(255,255,255,0.05)" }, yaxis: { visible: false }, showlegend: false, height: 250 }, { responsive: true, displayModeBar: false }); 
+      }, [z, tail]);
+      const prob = tail === "left" ? ST.normCDF(z) : tail === "right" ? 1 - ST.normCDF(z) : 2 * (1 - ST.normCDF(Math.abs(z)));
+      return (
+        <div className="grid-2">
+          <div className="card">
+            <div className="card-title">CALCULADORA DE RIESGO</div>
+            <div style={{display:"grid", gap:"15px", marginBottom:"20px"}}>
+              <div><label className="label-hint">Dato a analizar de tu lista</label><select className="sip-select" value={col} onChange={e=>setCol(e.target.value)}>{numCols.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="label-hint">Punto exacto a evaluar (Puntaje X)</label><input type="number" step="any" className="sip-input" value={valX} onChange={e=>setValX(+e.target.value)} /></div>
+              <div><label className="label-hint">¿Qué probabilidad quieres conocer?</label><select className="sip-select" value={tail} onChange={e=>setTail(e.target.value)}><option value="left">Valores menores al que escribí</option><option value="right">Valores mayores al que escribí</option><option value="both">Valores alejados (ambos extremos)</option></select></div>
+            </div>
+            <div ref={chartRef}></div>
+          </div>
+          <div className="card" style={{borderLeft:"4px solid var(--mint)", display:"flex", flexDirection:"column", justifyContent:"center"}}>
+            <div className="card-title">PROBABILIDAD ENCONTRADA</div><p className="result-val">{(prob * 100).toFixed(4)}%</p>
+            <p style={{fontSize:"13px", marginTop:15}}>Este porcentaje indica qué tan común es encontrar un dato según lo que marcaste en la gráfica.</p>
+          </div>
+        </div>
+      );
+    }
+
+    function DecisionLogic({ data, columns }) {
+      const numCols = useMemo(() => columns.filter(c => data[0] && !isNaN(parseFloat(data[0][c]))), [columns, data]);
+      const [col, setCol] = useState(numCols[0] || ""); 
+      const [mu0, setMu0] = useState(100); 
+      const [sigma, setSigma] = useState(15);
+      const [alpha, setAlpha] = useState(0.05);
+      const [tail, setTail] = useState("two"); 
+      const [studentDecision, setStudentDecision] = useState("");
+      
+      const chartRef = useRef(null); 
+      const stats = useMemo(() => ST.getStats(col, data), [col, data]); 
+      
+      const { zObs, pValue, zCrit, reject } = useMemo(() => {
+        const n = Math.max(1, stats.n);
+        const z = (stats.mean - mu0) / (sigma / Math.sqrt(n));
+        let p, zc;
+        if (tail === "two") { zc = ST.normPPF(1 - alpha/2); p = 2 * (1 - ST.normCDF(Math.abs(z))); }
+        else if (tail === "left") { zc = ST.normPPF(alpha); p = ST.normCDF(z); }
+        else { zc = ST.normPPF(1 - alpha); p = 1 - ST.normCDF(z); }
+        const rej = tail === "two" ? Math.abs(z) > zc : tail === "left" ? z < zc : z > zc;
+        return { zObs: z, pValue: p, zCrit: zc, reject: rej };
+      }, [stats, mu0, sigma, alpha, tail]);
+
+      useEffect(() => {
+        window.__LAST_Z_TEST__ = {
+            mu0, sigma, alpha, tail, mean: stats.mean, n: stats.n, zObs, reject, studentDecision
+        };
+      }, [mu0, sigma, alpha, tail, stats, zObs, reject, studentDecision]);
+
+      useEffect(() => { 
+        if (!chartRef.current) return; 
+        const xV = [], yV = [], xR1 = [], yR1 = [], xR2 = [], yR2 = []; 
+        for (let i = 0; i <= 200; i++) { 
+          const cx = -4 + (i * 8 / 200), cy = ST.normPDF(cx); xV.push(cx); yV.push(cy); 
+          if (tail === "two") { if (cx <= -zCrit) { xR1.push(cx); yR1.push(cy); } if (cx >= zCrit) { xR2.push(cx); yR2.push(cy); } }
+          else if (tail === "left") { if (cx <= zCrit) { xR1.push(cx); yR1.push(cy); } }
+          else { if (cx >= zCrit) { xR2.push(cx); yR2.push(cy); } }
+        } 
+        Plotly.newPlot(chartRef.current, [
+          { x: xV, y: yV, type: "scatter", mode: "lines", line: { color: "#444" } }, 
+          { x: xR1, y: yR1, fill: "tozeroy", type: "scatter", mode: "none", fillcolor: "rgba(255, 60, 0, 0.4)" }, 
+          { x: xR2, y: yR2, fill: "tozeroy", type: "scatter", mode: "none", fillcolor: "rgba(255, 60, 0, 0.4)" }, 
+          { x: [zObs, zObs], y: [0, 0.4], type: "scatter", mode: "lines", line: { color: reject ? "var(--red)" : "var(--mint)", width: 4 } }
+        ], { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", margin: { t: 5, r: 5, b: 20, l: 20 }, xaxis: { range: [-4, 4] }, yaxis: { visible: false }, showlegend: false, height: 200 }, { responsive: true, displayModeBar: false }); 
+      }, [zObs, zCrit, reject, tail]);
+      
+      return (
+        <div className="grid-2">
+          <div className="card">
+            <div className="card-title">MOTOR DE DECISIÓN</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'15px'}}>
+              <div style={{gridColumn:'1 / span 2'}}><label className="label-hint">Dato a poner a prueba</label><select className="sip-select" value={col} onChange={e=>setCol(e.target.value)}>{numCols.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
+              <div><label className="label-hint">Media que crees que es real (H0)</label><input type="number" step="any" className="sip-input" value={mu0} onChange={e=>setMu0(+e.target.value)} placeholder="Ej: 10.5"/></div>
+              <div><label className="label-hint">Variación conocida (Sigma σ)</label><input type="number" step="any" className="sip-input" value={sigma} onChange={e=>setSigma(+e.target.value)} placeholder="Ej: 1.2"/></div>
+              <div><label className="label-hint">Nivel de precisión (Confianza)</label><select className="sip-select" value={alpha} onChange={e=>setAlpha(+e.target.value)}><option value="0.10">90% (Menos estricto)</option><option value="0.05">95% (Estándar)</option><option value="0.01">99% (Muy estricto)</option></select></div>
+              <div><label className="label-hint">Tipo de comparación (H1)</label><select className="sip-select" value={tail} onChange={e=>setTail(e.target.value)}><option value="two">Es diferente (Bilateral)</option><option value="left">Es menor a la media</option><option value="right">Es mayor a la media</option></select></div>
+            </div>
+            <div ref={chartRef} style={{marginTop:15}}></div>
+          </div>
+          <div className="card" style={{borderLeft: "4px solid " + (reject ? "var(--red)" : "var(--mint)"), display:'flex', flexDirection:'column', justifyContent:'center'}}>
+            
+            <div className="card-title">TU DECISIÓN COMO ESTUDIANTE</div>
+            <select className="sip-select" value={studentDecision} onChange={e=>setStudentDecision(e.target.value)} style={{marginBottom: "20px", border: "1px solid var(--gold)", color: "var(--gold)"}}>
+              <option value="">-- Selecciona tu decisión antes de usar la IA --</option>
+              <option value="Rechazar H0">Rechazar H0 (La idea inicial es falsa)</option>
+              <option value="No Rechazar H0">No Rechazar H0 (Mantengo la idea inicial)</option>
+            </select>
+
+            <div className="card-title">DECISIÓN AUTOMÁTICA DEL SISTEMA</div>
+            <p className="result-val" style={{color: reject ? "var(--red)" : "var(--mint)", fontSize:"24px"}}>{reject ? "RECHAZAR IDEA (H0)" : "ACEPTAR IDEA (H0)"}</p>
+            <p style={{fontSize:"13px", marginTop:15}}>{reject ? "Los datos demuestran que tu sospecha inicial es muy probablemente falsa." : "No hay pruebas suficientes para descartar tu sospecha inicial."}</p>
+            <hr style={{opacity:0.1, margin:'20px 0'}}/>
+            <p style={{fontSize:"11px", color:"var(--sub)"}}>Estadístico Z: {zObs.toFixed(4)} | Valor p: {pValue.toFixed(6)} | Límite Crítico Z: {zCrit.toFixed(4)}</p>
+          </div>
+        </div>
+      );
+    }
+
+    function SectionContent({ id, data, columns, onLoaded }) {
+      const [synthN, setSynthN] = useState(100);
+      const [synthMean, setSynthMean] = useState(100);
+      const [synthStd, setSynthStd] = useState(15);
+
+      const genSynth = () => {
+        const d = []; 
+        for(let i=0; i<synthN; i++) {
+          let u = 0, v = 0;
+          while(u === 0) u = Math.random();
+          while(v === 0) v = Math.random();
+          const z0 = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+          const val = synthMean + z0 * synthStd;
+          d.push({ "Variable_Sintetica": parseFloat(val.toFixed(2)), "Grupo": i%2===0?"A":"B" });
+        }
+        onLoaded(d, ["Variable_Sintetica", "Grupo"]);
+      };
+
+      if (id === "upload") return (
+        <div className="card" style={{padding:60}}>
+          <div className="card-title" style={{textAlign:"center"}}>1. IMPORTAR ARCHIVO CSV O EXCEL</div>
+          <div style={{display:"flex", gap:"20px", justifyContent:"center", marginBottom: "40px"}}>
+            <input type="file" accept=".csv" onChange={(e)=>{ Papa.parse(e.target.files[0], { header:true, complete:(r)=>onLoaded(r.data, r.meta.fields) }); }} id="up" style={{display:"none"}} />
+            <label htmlFor="up" className="back-btn">SELECCIONAR ARCHIVO DE TU COMPUTADORA</label>
+          </div>
+          
+          <div style={{borderTop: "1px solid var(--border)", paddingTop: "40px"}}>
+            <div className="card-title" style={{textAlign:"center", color: "var(--gold)"}}>2. O GENERAR DATOS SINTÉTICOS (SIMULACIÓN)</div>
+            <div style={{display:"flex", gap:"15px", justifyContent:"center", marginBottom: "20px", flexWrap: "wrap"}}>
+              <div><label className="label-hint">Tamaño de muestra (n ≥ 30)</label><input type="number" className="sip-input" value={synthN} onChange={e=>setSynthN(+e.target.value)} style={{width:"200px"}}/></div>
+              <div><label className="label-hint">Media deseada</label><input type="number" step="any" className="sip-input" value={synthMean} onChange={e=>setSynthMean(+e.target.value)} style={{width:"200px"}}/></div>
+              <div><label className="label-hint">Desviación estándar deseada</label><input type="number" step="any" className="sip-input" value={synthStd} onChange={e=>setSynthStd(+e.target.value)} style={{width:"200px"}}/></div>
+            </div>
+            <div style={{textAlign:"center"}}>
+              <div className="back-btn" style={{borderColor:"var(--gold)", color:"var(--gold)"}} onClick={genSynth}>GENERAR DATOS AHORA</div>
+            </div>
+          </div>
+
+          {data && data.length > 0 && <p style={{marginTop:30, color:"var(--mint)", textAlign:"center"}}>{data.length} registros cargados correctamente en memoria. Puedes ir a otra sección.</p>}
+        </div>
+      );
+      if (!data || data.length === 0) return <div style={{textAlign:"center", padding:100, color:"var(--cyan)", fontWeight:800}}>POR FAVOR, CARGA DATOS PARA EMPEZAR.</div>;
+      switch(id) {
+        case "dataset": return (
+          <div className="card"><div className="card-title">RESUMEN GENERAL</div><table className="sip-table"><thead><tr><th>VARIABLE</th><th>PROMEDIO</th><th>VARIACIÓN</th></tr></thead><tbody>{columns.slice(0,10).map(c=>{const s = ST.getStats(c, data); return <tr key={c}><td>{c}</td><td style={{color:"var(--mint)"}}>{s.mean.toFixed(3)}</td><td>{s.std.toFixed(3)}</td></tr>})}</tbody></table></div>
+        );
+        case "distribution": return <DistributionFlow data={data} columns={columns} />;
+        case "z_value": return <ScoreProcessor data={data} columns={columns} />;
+        case "hypothesis": return <DecisionLogic data={data} columns={columns} />;
+        default: return <div className="card"><h3>Panel {id} activo.</h3></div>;
+      }
+    }
+
+    function App() {
+      const [activeSection, setActiveSection] = useState(window.__SIP_RELOAD_SECTION__ || null);
+      const [csvData, setCsvData] = useState(() => { try { const s = localStorage.getItem("sip_csv_data"); return s ? JSON.parse(s) : (window.__SIP_DATA__?.records || []); } catch(e) { return []; } });
+      const [csvCols, setCsvCols] = useState(() => { try { const s = localStorage.getItem("sip_csv_cols"); return s ? JSON.parse(s) : (window.__SIP_DATA__?.columns || []); } catch(e) { return []; } });
+      const [aiResult, setAiResult] = useState(window.__SIP_AI_RESPONSE__ || null);
+      const [isAiProcessing, setIsAiProcessing] = useState(false);
+      const vScrollRef = useRef(0), mouseRef = useRef({ x: 0, y: 0 }), targetMouseRef = useRef({ x: 0, y: 0 }), isFlyingRef = useRef(false), targetIDRef = useRef(null), activeSectionRef = useRef(activeSection);
+      useEffect(() => { activeSectionRef.current = activeSection; }, [activeSection]);
+      useEffect(() => { try { if (csvData.length > 0) { localStorage.setItem("sip_csv_data", JSON.stringify(csvData)); localStorage.setItem("sip_csv_cols", JSON.stringify(csvCols)); } } catch(e) {} }, [csvData, csvCols]);
+      
+      useEffect(() => {
+        const bg = document.getElementById("bg"); if (!bg) return;
+        const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 10000), renderer = new THREE.WebGLRenderer({ canvas: bg, alpha: true, antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight); camera.position.z = 110;
+        const stars = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ size: 1.8, color: 0xffffff, transparent: true, opacity: 0.6 }));
+        const sPos = new Float32Array(100000 * 3); for(let i=0; i<300000; i++) sPos[i] = (Math.random()-0.5)*8000;
+        stars.geometry.setAttribute("position", new THREE.BufferAttribute(sPos, 3)); scene.add(stars);
+        const fCount = 9000, core = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ size: 0.45, color: 0x00cfff, transparent: true, opacity: 0.8 }));
+        const cPos = new Float32Array(fCount * 3), cMeta = new Float32Array(fCount * 3);
+        for(let i=0; i<fCount; i++) { const a = Math.random()*Math.PI*2, r = 6 + Math.random()*4; cPos[i*3]=Math.cos(a)*r; cPos[i*3+1]=(Math.random()-0.5)*180; cPos[i*3+2]=Math.sin(a)*r; cMeta[i*3] = 0.3+Math.random()*0.8; cMeta[i*3+1]=r; cMeta[i*3+2]=Math.random()*Math.PI*2; }
+        core.geometry.setAttribute("position", new THREE.BufferAttribute(cPos, 3)); scene.add(core);
+        const panels = SECTIONS_REF.map((s, i) => {
+          const c = document.createElement("canvas"); c.width = 512; c.height = 400; const ctx = c.getContext('2d'); 
+          ctx.fillStyle = '#050510'; ctx.fillRect(0,0,512,400); ctx.strokeStyle = s.color; ctx.lineWidth = 20; ctx.strokeRect(0,0,512,400); 
+          ctx.fillStyle = s.color; ctx.font = "bold 120px Syne"; ctx.textAlign = "center"; ctx.fillText(s.icon, 256, 180); 
+          ctx.font = "bold 36px Syne"; ctx.fillText(s.title, 256, 300);
+          const p = new THREE.Mesh(new THREE.BoxGeometry(22, 18, 0.5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true })); 
+          p.userData = { id: s.id, angleBase: (i/SECTIONS_REF.length)*Math.PI*2, index: i }; scene.add(p); return p;
+        });
+        const onWheel = e => { if (!activeSectionRef.current) vScrollRef.current += e.deltaY * 0.05; };
+        const updateMouse = e => { 
+          targetMouseRef.current.x = (e.clientX/window.innerWidth)*2-1; targetMouseRef.current.y = -(e.clientY/window.innerHeight)*2+1; 
+          const dot = document.getElementById("cursor-dot"), ring = document.getElementById("cursor-ring");
+          if(dot) { dot.style.left = e.clientX + "px"; dot.style.top = e.clientY + "px"; }
+          if(ring) { ring.style.left = e.clientX + "px"; ring.style.top = e.clientY + "px"; }
+        };
+        window.addEventListener("wheel", onWheel, { passive: true }); window.addEventListener("mousemove", updateMouse);
+        const raycaster = new THREE.Raycaster();
+        const onClick = () => { if(activeSectionRef.current || isFlyingRef.current) return; raycaster.setFromCamera(targetMouseRef.current, camera); const hits = raycaster.intersectObjects(panels); if(hits.length > 0) { targetIDRef.current = hits[0].object.userData.id; isFlyingRef.current = true; } };
+        window.addEventListener("click", onClick);
+        let frameId;
+        const animate = () => {
+          frameId = requestAnimationFrame(animate); const time = Date.now()*0.001;
+          mouseRef.current.x += (targetMouseRef.current.x - mouseRef.current.x)*0.05; mouseRef.current.y += (targetMouseRef.current.y - mouseRef.current.y)*0.05;
+          if(core && core.geometry) {
+            const cArr = core.geometry.attributes.position.array; 
+            for(let i=0; i<fCount; i++){ cArr[i*3+1]+=cMeta[i*3]; if(cArr[i*3+1]>90) cArr[i*3+1]=-90; const rB = cMeta[i*3+1], ph = time + cMeta[i*3+2], tx = Math.cos(ph)*rB + (mouseRef.current.x*12), tz = Math.sin(ph)*rB + (mouseRef.current.y*-12); cArr[i*3] += (tx-cArr[i*3])*0.05; cArr[i*3+2] += (tz-cArr[i*3+2])*0.05; } 
+            core.geometry.attributes.position.needsUpdate = true;
+          }
+          if(!activeSectionRef.current && !isFlyingRef.current) {
+            const rangeY = SECTIONS_REF.length * 32;
+            panels.forEach((p) => {
+              let y = (p.userData.index * 32) - (vScrollRef.current % rangeY);
+              y = ((y + rangeY / 2) % rangeY + rangeY) % rangeY - rangeY / 2;
+              const angle = p.userData.angleBase + (-(vScrollRef.current % rangeY) * (Math.PI * 2 / rangeY));
+              p.position.set(Math.sin(angle)*45, y, Math.cos(angle)*45); p.rotation.y = angle + Math.PI;
+            });
+            camera.position.lerp(new THREE.Vector3(mouseRef.current.x*25, mouseRef.current.y*25, 120), 0.05); camera.lookAt(0,0,0);
+          } else if(isFlyingRef.current) {
+            const target = panels.find(p => p.userData.id === targetIDRef.current);
+            if(target) { const zoomPos = target.position.clone().multiplyScalar(0.4); camera.position.lerp(zoomPos, 0.08); camera.lookAt(target.position); if(camera.position.distanceTo(zoomPos) < 1.5) { isFlyingRef.current = false; setActiveSection(targetIDRef.current); } }
+          }
+          renderer.render(scene, camera);
+        };
+        animate();
+        return () => { cancelAnimationFrame(frameId); renderer.dispose(); };
+      }, []);
+
+      const handleAiClick = useCallback(async () => {
+        if (!csvData || csvData.length === 0 || isAiProcessing) return;
+        setIsAiProcessing(true); setAiResult(null);
+        
+        let prompt = "";
+        
+        if (activeSection === "hypothesis" && window.__LAST_Z_TEST__) {
+            const t = window.__LAST_Z_TEST__;
+            const tailStr = t.tail === "two" ? "bilateral" : (t.tail === "left" ? "cola izquierda" : "cola derecha");
+            const studentDecStr = t.studentDecision ? t.studentDecision : "No tomó decisión";
+            prompt = `Actúa como un profesor de estadística evaluando a tu alumno.
+Se realizó una prueba Z con los siguientes parámetros:
+media muestral = ${t.mean.toFixed(4)}, media hipotética = ${t.mu0}, n = ${t.n}, sigma = ${t.sigma}, alpha = ${t.alpha}, tipo de prueba = ${tailStr}.
+
+El estadístico Z fue = ${t.zObs.toFixed(4)}.
+
+El estudiante decidió: "${studentDecStr}".
+
+¿Se rechaza H0? Explica la decisión y si los supuestos de la prueba son razonables. Compara tu respuesta final con la decisión del estudiante para decirle de forma muy amable si acertó o se equivocó.`;
+        } else {
+            const stats = csvCols.slice(0,5).map(c => { const s = ST.getStats(c, csvData); return `${c}: Promedio=${s.mean.toFixed(2)}, Desv=${s.std.toFixed(2)}`; }).join(" | ");
+            const sectionTitle = SECTIONS_REF.find(s=>s.id===activeSection)?.title || "General";
+            prompt = `Actúa como un profesor de estadística muy amable. Analiza la sección "${sectionTitle}". Datos: ${stats}. Explica el impacto de forma sencilla y clara para alguien que no sabe de matemáticas.`;
+        }
+
+        try {
+          const apiKey = window.__GROQ_KEY__; if (!apiKey) { setAiResult("⚠️ No se encontró la llave de Groq."); setIsAiProcessing(false); return; }
+          const r = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: prompt }] }) });
+          if (r.ok) { const json = await r.json(); setAiResult(json.choices[0].message.content); }
+          else { setAiResult(`⚠️ Error en la conexión con el servidor.`); }
+        } catch(e) { setAiResult(`⚠️ Error de red.`); }
+        setIsAiProcessing(false);
+      }, [csvData, csvCols, activeSection, isAiProcessing]);
+
+      return (
+        <React.Fragment>
+          <div id="section-overlay" className={activeSection ? "active" : ""}>
+            <div id="sec-header">
+              <div className="back-btn" onClick={()=>{setActiveSection(null);setAiResult(null);setIsAiProcessing(false);}}>← SALIR AL CENTRO</div>
+              <h1>{SECTIONS_REF.find(s=>s.id===activeSection)?.title}</h1>
+              <div className={"back-btn ai-btn" + (isAiProcessing ? " disabled" : "")} onClick={handleAiClick} style={{cursor: isAiProcessing ? "not-allowed" : "pointer"}}>
+                {isAiProcessing ? "PROCESANDO..." : "✨ EVALUAR CON IA"}
+              </div>
+            </div>
+            <div id="sec-main">
+              {aiResult && <div className="card" style={{borderLeft:"5px solid var(--gold)", background:"rgba(255,214,0,0.1)"}}><div className="card-title" style={{color:"var(--gold)"}}>EXPLICACIÓN DEL ASISTENTE</div><div style={{fontSize:16, lineHeight:1.8, whiteSpace:"pre-wrap"}}>{aiResult}</div></div>}
+              <SectionContent id={activeSection} data={csvData} columns={csvCols} onLoaded={(d,c)=>{setCsvData(d);setCsvCols(c);}} />
+            </div>
+          </div>
+        </React.Fragment>
+      );
+    }
+    const container = document.getElementById("app");
+    const root = ReactDOM.createRoot(container);
+    root.render(<App />);
+  </script>
+</body>
+</html>
