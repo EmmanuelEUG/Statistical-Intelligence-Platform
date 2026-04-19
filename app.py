@@ -1,3 +1,4 @@
+# Statistical Intelligence Platform - Sistema de Análisis Estadístico
 import streamlit as st
 import pandas as pd
 import json
